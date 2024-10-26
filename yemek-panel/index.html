@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menü Yönetim Paneli</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <h1>Menü Yönetim Paneli</h1>
+            <button class="nav-button" onclick="window.location.href='update.html'">Ürün Yönetimi Sayfası</button>
+        </div>
+        
+        <div class="controls">
+            <select id="menuSelect">
+                <option value="">Menü Seçiniz...</option>
+            </select>
+            <button id="refreshButton" class="refresh-button">Yenile</button>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            Yükleniyor...
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <table id="productsTable">
+            <thead>
+                <tr>
+                    <th>Ürün Kodu</th>
+                    <th>Açıklama</th>
+                    <th>Kategori</th>
+                    <th>Birim</th>
+                    <th>Fiyat</th>
+                    <th>KDV</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        // Yardımcı fonksiyonlar
+        function formatNumber(value) {
+            if (value === null || value === undefined || isNaN(value)) {
+                return '0.00';
+            }
+            return Number(parseFloat(value)).toFixed(2);
+        }
+
+        function formatText(value) {
+            return value || '-';
+        }
+
+        // Menüleri yükleme
+        async function loadMenus() {
+            try {
+                const response = await fetch('http://localhost:3000/api/menu-groups');
+                const menus = await response.json();
+                const select = document.getElementById('menuSelect');
+                
+                menus.forEach(menu => {
+                    const option = document.createElement('option');
+                    option.value = menu.ID;
+                    option.textContent = menu.ACIKLAMA;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Menüler yüklenirken hata:', error);
+                document.getElementById('error').textContent = 'Menüler yüklenirken hata oluştu';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        // Ürünleri yükleme
+        async function loadProducts(menuId) {
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            const tbody = document.querySelector('#productsTable tbody');
+
+            try {
+                loadingEl.style.display = 'block';
+                errorEl.style.display = 'none';
+
+                const response = await fetch(`http://localhost:3000/api/products/${menuId}`);
+                const products = await response.json();
+
+                tbody.innerHTML = products.map(product => `
+                    <tr>
+                        <td>${formatText(product.URUN_KOD)}</td>
+                        <td>${formatText(product.ACIKLAMA)}</td>
+                        <td>${formatText(product.CATEGORY)}</td>
+                        <td>${formatText(product.BIRIM)}</td>
+                        <td>${formatNumber(product.FIYATI)}</td>
+                        <td>${formatNumber(product.KDV)}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Ürünler yüklenirken hata:', error);
+                errorEl.textContent = 'Ürünler yüklenirken hata oluştu';
+                errorEl.style.display = 'block';
+                tbody.innerHTML = '';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            loadMenus();
+
+            const menuSelect = document.getElementById('menuSelect');
+            menuSelect.addEventListener('change', (e) => {
+                if (e.target.value) {
+                    loadProducts(e.target.value);
+                }
+            });
+
+            const refreshButton = document.getElementById('refreshButton');
+            refreshButton.addEventListener('click', () => {
+                const selectedMenuId = menuSelect.value;
+                if (selectedMenuId) {
+                    loadProducts(selectedMenuId);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ürün Yönetimi</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header-section">
+            <h1>Ürün Yönetimi</h1>
+            <button class="nav-button" onclick="window.location.href='index.html'">Ana Sayfaya Dön</button>
+        </div>
+
+        <div class="controls">
+            <select id="menuSelect">
+                <option value="">Menü Seçiniz...</option>
+            </select>
+            <button id="refreshButton" class="refresh-button">Yenile</button>
+            <button id="addProductButton" class="add-button">Yeni Ürün Ekle</button>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            Yükleniyor...
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <table id="productsTable">
+            <thead>
+                <tr>
+                    <th>Ürün Kodu</th>
+                    <th>Açıklama</th>
+                    <th>Kategori</th>
+                    <th>Birim</th>
+                    <th>Fiyat</th>
+                    <th>KDV</th>
+                    <th>İşlemler</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="productModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modalTitle">Yeni Ürün Ekle</h2>
+            <form id="productForm">
+                <div class="form-group">
+                    <label for="urunKodu">Ürün Kodu:</label>
+                    <input type="text" id="urunKodu" name="URUN_KOD" required>
+                </div>
+                <div class="form-group">
+                    <label for="aciklama">Açıklama:</label>
+                    <input type="text" id="aciklama" name="ACIKLAMA" required>
+                </div>
+                <div class="form-group">
+                    <label for="kategori">Kategori:</label>
+                    <input type="text" id="kategori" name="CATEGORY">
+                </div>
+                <div class="form-group">
+                    <label for="birim">Birim:</label>
+                    <input type="text" id="birim" name="BIRIM" value="Adet">
+                </div>
+                <div class="form-group">
+                    <label for="fiyat">Fiyat:</label>
+                    <input type="number" id="fiyat" name="FIYATI" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="kdv">KDV (%):</label>
+                    <input type="number" id="kdv" name="KDV" step="0.01" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="save-button">Kaydet</button>
+                    <button type="button" class="cancel-button">İptal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Yardımcı fonksiyonlar
+        function formatNumber(value) {
+            if (value === null || value === undefined || isNaN(value)) {
+                return '0.00';
+            }
+            return Number(parseFloat(value)).toFixed(2);
+        }
+
+        function formatText(value) {
+            return value || '-';
+        }
+
+        // Modal işlemleri
+        const modal = document.getElementById('productModal');
+        const closeBtn = document.querySelector('.close');
+        const cancelBtn = document.querySelector('.cancel-button');
+        let currentProductId = null;
+
+        function openModal(isEdit = false, productData = null) {
+            currentProductId = productData ? productData.ID : null;
+            document.getElementById('modalTitle').textContent = isEdit ? 'Ürün Düzenle' : 'Yeni Ürün Ekle';
+
+            // Kategori input alanını seç
+            const kategoriInput = document.getElementById('kategori');
+
+            if (productData) {
+                document.getElementById('urunKodu').value = formatText(productData.URUN_KOD);
+                document.getElementById('aciklama').value = formatText(productData.ACIKLAMA);
+                document.getElementById('kategori').value = formatText(productData.CATEGORY);
+                document.getElementById('birim').value = formatText(productData.BIRIM);
+                document.getElementById('fiyat').value = formatNumber(productData.FIYATI);
+                document.getElementById('kdv').value = formatNumber(productData.KDV);
+
+                // Düzenleme modunda kategori alanını readonly ve disabled yap
+                kategoriInput.readOnly = true;
+                kategoriInput.disabled = true;
+                kategoriInput.classList.add('readonly-input'); // Stil için class ekle
+            } else {
+                document.getElementById('productForm').reset();
+                // Yeni ürün ekleme modunda kategori alanını aktif yap
+                kategoriInput.readOnly = false;
+                kategoriInput.disabled = false;
+                kategoriInput.classList.remove('readonly-input');
+            }
+
+            modal.style.display = 'block';
+        }
+
+        function closeModal() {
+            modal.style.display = 'none';
+            currentProductId = null;
+        }
+
+        // Menüleri yükleme
+        async function loadMenus() {
+            try {
+                const response = await fetch('http://localhost:3000/api/menu-groups');
+                const menus = await response.json();
+                const select = document.getElementById('menuSelect');
+
+                menus.forEach(menu => {
+                    const option = document.createElement('option');
+                    option.value = menu.ID;
+                    option.textContent = menu.ACIKLAMA;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Menüler yüklenirken hata:', error);
+                document.getElementById('error').textContent = 'Menüler yüklenirken hata oluştu';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        // Ürünleri yükleme
+        async function loadProducts(menuId) {
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            const tbody = document.querySelector('#productsTable tbody');
+
+            try {
+                loadingEl.style.display = 'block';
+                errorEl.style.display = 'none';
+
+                const response = await fetch(`http://localhost:3000/api/products/${menuId}`);
+                const products = await response.json();
+
+                tbody.innerHTML = products.map(product => `
+                    <tr>
+                        <td>${formatText(product.URUN_KOD)}</td>
+                        <td>${formatText(product.ACIKLAMA)}</td>
+                        <td>${formatText(product.CATEGORY)}</td>
+                        <td>${formatText(product.BIRIM)}</td>
+                        <td>${formatNumber(product.FIYATI)}</td>
+                        <td>${formatNumber(product.KDV)}</td>
+                        <td>
+                            <button class="edit-button" onclick="editProduct(${product.ID})">Düzenle</button>
+                            <button class="delete-button" onclick="deleteProduct(${product.ID},'${product.URUN_KOD}')">Sil</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Ürünler yüklenirken hata:', error);
+                errorEl.textContent = 'Ürünler yüklenirken hata oluştu';
+                errorEl.style.display = 'block';
+                tbody.innerHTML = '';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        // Ürün işlemleri
+        async function saveProduct(formData) {
+            const menuId = document.getElementById('menuSelect').value;
+            if (!menuId) {
+                throw new Error('Lütfen bir menü seçin');
+            }
+
+            const data = {
+                MENU_ID: parseInt(menuId),
+                URUN_KOD: formData.get('URUN_KOD'),
+                ACIKLAMA: formData.get('ACIKLAMA'),
+                CATEGORY: formData.get('CATEGORY'),
+                BIRIM: formData.get('BIRIM'),
+                FIYATI: parseFloat(formData.get('FIYATI')) || 0,
+                KDV: parseFloat(formData.get('KDV')) || 0
+            };
+
+            const url = currentProductId
+                ? `http://localhost:3000/api/products/${currentProductId}`
+                : 'http://localhost:3000/api/products';
+
+            const method = currentProductId ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+
+            if (!response.ok) {
+                throw new Error('Ürün kaydedilirken bir hata oluştu');
+            }
+
+            await loadProducts(menuId);
+        }
+
+        async function deleteProduct(id, urunKodu) {
+            if (!confirm('Bu ürünü silmek istediğinizden emin misiniz?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/products/${id}/${urunKodu}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ürün silinirken bir hata oluştu');
+                }
+
+                const menuId = document.getElementById('menuSelect').value;
+                await loadProducts(menuId);
+            } catch (error) {
+                console.error('Silme hatası:', error);
+                document.getElementById('error').textContent = error.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+        async function editProduct(id) {
+            try {
+                const menuId = document.getElementById('menuSelect').value;
+                const response = await fetch(`http://localhost:3000/api/products/${menuId}`);
+                const products = await response.json();
+
+                const product = products.find(p => p.ID === id);
+                if (!product) {
+                    throw new Error('Ürün bulunamadı');
+                }
+
+                openModal(true, product);
+            } catch (error) {
+                console.error('Düzenleme hatası:', error);
+                document.getElementById('error').textContent = 'Ürün bilgileri yüklenirken hata oluştu';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            loadMenus();
+
+            const menuSelect = document.getElementById('menuSelect');
+            menuSelect.addEventListener('change', (e) => {
+                if (e.target.value) {
+                    loadProducts(e.target.value);
+                }
+            });
+
+            const refreshButton = document.getElementById('refreshButton');
+            refreshButton.addEventListener('click', () => {
+                const selectedMenuId = menuSelect.value;
+                if (selectedMenuId) {
+                    loadProducts(selectedMenuId);
+                }
+            });
+
+            const addProductButton = document.getElementById('addProductButton');
+            addProductButton.addEventListener('click', () => {
+                openModal(false);
+            });
+
+            closeBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+
+            window.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            });
+
+            const productForm = document.getElementById('productForm');
+            productForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const formData = new FormData(e.target);
+                    await saveProduct(formData);
+                    closeModal();
+                } catch (error) {
+                    console.error('Form kaydetme hatası:', error);
+                    document.getElementById('error').textContent = error.message;
+                    document.getElementById('error').style.display = 'block';
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
